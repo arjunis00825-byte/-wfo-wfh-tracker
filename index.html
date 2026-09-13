@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b57d0">
+<title>WFO / WFH Tracker</title>
+<style>
+:root{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",Arial,sans-serif;color:#111;background:#f5f5f7}
+*{box-sizing:border-box}body{margin:0;background:#f5f5f7}main{max-width:520px;margin:auto;padding:18px 14px 30px}
+h1{font-size:25px;margin:4px 0 14px}.card{background:white;border-radius:18px;padding:15px;margin-bottom:12px;box-shadow:0 1px 5px #00000012}
+select,input{width:100%;font-size:17px;padding:12px;border:1px solid #d1d1d6;border-radius:12px;background:#fff}
+label{display:block;font-size:13px;color:#666;margin-bottom:6px}
+.period{font-weight:600;margin-top:10px}.stats{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:12px}
+.stat{background:#f2f2f7;border-radius:13px;padding:10px;text-align:center}.stat b{display:block;font-size:21px;margin-top:2px}
+.calendar{display:grid;grid-template-columns:repeat(7,1fr);gap:5px}.dow{text-align:center;color:#777;font-size:12px;padding:3px}
+.day{min-height:50px;border:1px solid #ddd;border-radius:9px;background:#fff;font-size:12px;padding:4px;cursor:pointer}.day strong{display:block;font-size:15px}
+.day.weekend{background:#f1f1f1;color:#999}.day.holiday{background:#fff3cd;color:#795548}.day.leave{background:#e8def8}
+.day.office{background:#d9f2dc;border-color:#4caf50}.day.home{background:#dcecff;border-color:#4285f4}.day.selected{outline:3px solid #0b57d0}
+.actions{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:10px}
+button.action{border:0;border-radius:12px;padding:12px 5px;font-weight:700;font-size:14px;background:#0b57d0;color:white}
+button.home{background:#4285f4}button.leave{background:#7b61a8}button.clear{background:#666}
+.note{font-size:12px;color:#666;line-height:1.4}.legend{font-size:12px;color:#555;display:flex;gap:10px;flex-wrap:wrap}
+@media(max-width:350px){main{padding-left:8px;padding-right:8px}.day{min-height:46px;font-size:10px}.actions button{font-size:12px}}
+</style>
+</head>
+<body>
+<main>
+<h1>WFO / WFH Tracker</h1>
+<div class="card">
+<label for="periodSelect">15–15 period</label>
+<select id="periodSelect"></select>
+<div id="period" class="period"></div>
+<div class="stats">
+<div class="stat">Effective days<b id="effective">0</b></div>
+<div class="stat">Leave<b id="leaveCount">0</b></div>
+<div class="stat">Office<b id="officeCount">0</b></div>
+<div class="stat">Home<b id="homeCount">0</b></div>
+<div class="stat">WFO %<b id="wfo">0.0%</b></div>
+<div class="stat">WFH %<b id="wfh">0.0%</b></div>
+</div>
+</div>
+<div class="card">
+<label for="leaveDates">Leave dates (comma separated, e.g. 18, 22)</label>
+<input id="leaveDates" inputmode="numeric" placeholder="Enter leave day numbers">
+<p class="note">Leave dates are day numbers within the selected 15–15 period. Weekends and regular company holidays are automatically excluded.</p>
+</div>
+<div class="card">
+<div class="legend">🟩 Office &nbsp; 🟦 Home &nbsp; 🟪 Leave &nbsp; 🟨 Holiday &nbsp; ⬜ Working day</div>
+<div id="calendar" class="calendar" style="margin-top:10px"></div>
+<div class="actions">
+<button class="action" id="officeBtn">Office</button>
+<button class="action home" id="homeBtn">Home</button>
+<button class="action leave" id="leaveBtn">Leave</button>
+</div>
+<button class="action clear" id="clearBtn" style="width:100%;margin-top:7px">Clear selected day</button>
+<p id="message" class="note"></p>
+</div>
+</main>
+<script>
+(function(){
+const holidays={
+"2026-01-01":"New Year","2026-01-15":"Makara Sankranti","2026-01-26":"Republic Day",
+"2026-03-19":"Chandramana Ugadi","2026-05-01":"May Day","2026-08-15":"Independence Day",
+"2026-09-14":"Ganesh Chaturthi","2026-10-02":"Gandhi Jayanthi","2026-10-21":"Vijaya Dashami",
+"2026-11-01":"Karnataka Rajyotsava","2026-11-10":"Balipadyami / Deepavali"
+};
+const sel=document.getElementById("periodSelect"), cal=document.getElementById("calendar");
+const leaveInput=document.getElementById("leaveDates"); let selected=null;
+let marks=JSON.parse(localStorage.getItem("wfoMarks")||"{}");
+for(let m=0;m<12;m++){let o=document.createElement("option");o.value=m;o.textContent=`15 ${["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][m]} 2026 → 15 ${["Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec","Jan"][m]} ${m===11?2027:2026}`;sel.appendChild(o)}
+function iso(d){return d.toISOString().slice(0,10)}
+function dates(m){let a=new Date(Date.UTC(2026,m,15)),b=new Date(Date.UTC(2026,m+1,15)),x=[];for(let d=new Date(a);d<=b;d.setUTCDate(d.getUTCDate()+1))x.push(new Date(d));return x}
+function leaveSet(ds){let nums=new Set((leaveInput.value||"").split(",").map(v=>parseInt(v.trim(),10)).filter(v=>Number.isInteger(v)&&v>=1&&v<=31));return new Set(ds.filter(d=>nums.has(d.getUTCDate())).map(iso))}
+function save(){localStorage.setItem("wfoMarks",JSON.stringify(marks))}
+function render(){
+ let m=+sel.value, ds=dates(m), ls=leaveSet(ds); selected=null; cal.innerHTML="";
+ document.getElementById("period").textContent=`Period: ${ds[0].getUTCDate()} ${["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][ds[0].getUTCMonth()]} 2026 → ${ds.at(-1).getUTCDate()} ${["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][ds.at(-1).getUTCMonth()]} ${ds.at(-1).getUTCFullYear()}`;
+ ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].forEach(x=>{let q=document.createElement("div");q.className="dow";q.textContent=x;cal.appendChild(q)});
+ let eff=0,o=0,h=0;
+ ds.forEach(d=>{
+  let k=iso(d),w=[0,6].includes(d.getUTCDay()),hol=holidays[k],lv=ls.has(k),mark=marks[k];
+  let b=document.createElement("button");b.type="button";b.className="day"+(w?" weekend":"")+(hol?" holiday":"")+(lv?" leave":"")+(mark==="O"?" office":"")+(mark==="H"?" home":"");
+  b.innerHTML=`<strong>${d.getUTCDate()}</strong>${hol?"🎉":lv?"Leave":mark==="O"?"Office":mark==="H"?"Home":""}`;
+  if(!w&&!hol&&!lv){eff++;if(mark==="O")o++;if(mark==="H")h++;b.addEventListener("click",()=>{selected=k;document.querySelectorAll(".day.selected").forEach(x=>x.classList.remove("selected"));b.classList.add("selected")})}
+  cal.appendChild(b);
+ });
+ document.getElementById("effective").textContent=eff;document.getElementById("leaveCount").textContent=ls.size;
+ document.getElementById("officeCount").textContent=o;document.getElementById("homeCount").textContent=h;
+ document.getElementById("wfo").textContent=eff?(o/eff*100).toFixed(1)+"%":"0.0%";
+ document.getElementById("wfh").textContent=eff?(h/eff*100).toFixed(1)+"%":"0.0%";
+ document.getElementById("message").textContent=`Unmarked effective days: ${Math.max(0,eff-o-h)}`;
+}
+function setMark(v){if(!selected){document.getElementById("message").textContent="Tap a working day first.";return}marks[selected]=v;save();render()}
+document.getElementById("officeBtn").onclick=()=>setMark("O");
+document.getElementById("homeBtn").onclick=()=>setMark("H");
+document.getElementById("leaveBtn").onclick=()=>{if(!selected){document.getElementById("message").textContent="Tap a working day first.";return}let nums=(leaveInput.value||"").split(",").map(v=>v.trim()).filter(Boolean);let d=new Date(selected+"T00:00:00Z");nums.push(String(d.getUTCDate()));leaveInput.value=[...new Set(nums)].join(", ");render()};
+document.getElementById("clearBtn").onclick=()=>{if(selected){delete marks[selected];save();render()}};
+sel.onchange=render;leaveInput.oninput=render;render();
+})();
+</script>
+</body>
+</html>
